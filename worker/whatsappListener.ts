@@ -32,7 +32,7 @@ export function initWhatsAppListener(): Client {
   console.log('[WhatsApp] Initializing WhatsApp Web Client...');
 
   const client = new Client({
-    authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }),
+    authStrategy: new LocalAuth(),
     puppeteer: {
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
     },
