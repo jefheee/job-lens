@@ -8,6 +8,7 @@ import { Job } from '../types/job';
  * - Transparência Salarial: +2.0 (ambos min/max), +1.0 (apenas um), -2.0 (sem salário)
  * - Modalidade: Remoto (+3.0), Híbrido (+1.0), Presencial (+0.0)
  * - Stack: +0.1 por tecnologia (máx +1.0)
+ * - Peso Logístico Geográfico: +1.5 para vagas presenciais/híbridas localizadas em Palhoça ou São José
  * - Localização: Punição (-1.0) se Presencial/Híbrido fora da Grande Florianópolis
  */
 export function calculateJobScore(job: Partial<Job>): number {
@@ -35,12 +36,17 @@ export function calculateJobScore(job: Partial<Job>): number {
     score += stackBonus;
   }
 
-  // Regra de Localização (Foco em Grande Florianópolis)
+  // Regra de Localização & Peso Logístico Geográfico (Grande Florianópolis)
   const locationLower = job.location?.toLowerCase() || '';
   const isFloripaRegion = 
     locationLower.includes('florianópolis') || 
     locationLower.includes('são josé') || 
     locationLower.includes('palhoça');
+
+  // Bônus logístico positivo para Palhoça e São José
+  if (locationLower.includes('palhoça') || locationLower.includes('são josé')) {
+    score += 1.5;
+  }
 
   if (job.modality !== 'Remoto' && !isFloripaRegion) {
     score -= 1.0;
