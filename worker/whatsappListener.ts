@@ -1,7 +1,7 @@
 import { Client, LocalAuth, Message } from 'whatsapp-web.js';
 import qrcode from 'qrcode-terminal';
 import { createClient } from '@supabase/supabase-js';
-import { processTextToJSON } from '../utils/aiOrchestrator';
+import { processTextToJSON, extractTextFromImage } from '../utils/aiOrchestrator';
 import { calculateJobScore } from '../utils/scoreCalculator';
 import { scrapeJobPage } from './webScraper';
 import dotenv from 'dotenv';
@@ -19,7 +19,10 @@ const supabase = createClient(supabaseUrl, supabaseKey);
  * Exemplo: ['1203630123456789@g.us', '554899999999-12345678@g.us']
  * Se a lista estiver vazia, o listener monitora todos os grupos.
  */
-export const TARGET_GROUPS: string[] = [];
+export const TARGET_GROUPS: string[] = [
+  '120363409585552248@g.us', // VagasFloripa.com.br
+  '554888005275-1571549036@g.us', // Vagas.SC
+];
 export const TARGET_GROUP_IDS: string[] = TARGET_GROUPS;
 
 const KEYWORDS = ['vaga', 'oportunidade', 'estágio', 'estagio', 'freela', 'freelancer', 'contratando', 'hiring', 'trabalho', 'emprego', 'remoto', 'home-office', 'CLT', 'salário', 'vagas', 'oportunidades', 'contrata', 'http://', 'https://'];
@@ -55,32 +58,54 @@ export function initWhatsAppListener(): Client {
       return;
     }
 
-    // 3. Bloco try/catch isolado para blindar o worker contra falhas do Puppeteer
+    // 3. Bloco try/catch isolado para blindar o worker contra falhas
     try {
       const chat = await msg.getChat();
 
       // Verificar se a mensagem é proveniente de um grupo
       if (!chat.isGroup) return;
 
-      const text = msg.body.toLowerCase();
-      const hasKeyword = KEYWORDS.some((kw) => text.includes(kw));
+      // 4. Interceptação e Extração de Mídia (OCR em Imagens/Flyers)
+      let ocrExtractedText = '';
+      if (msg.hasMedia) {
+        try {
+          const media = await msg.downloadMedia();
+          if (media && media.mimetype && media.mimetype.startsWith('image/')) {
+            console.log(`[WhatsApp] Imagem identificada (${media.mimetype}). Acionando OCR Gemini 1.5 Flash...`);
+            ocrExtractedText = await extractTextFromImage(media.data, media.mimetype);
+          }
+        } catch (mediaErr) {
+          console.error('[WhatsApp] Erro isolado ao baixar ou processar mídia da mensagem:', mediaErr);
+        }
+      }
+
+      // Consolidar texto original com texto extraído da imagem (OCR)
+      let fullTextToProcess = [
+        msg.body,
+        ocrExtractedText ? `[Texto Extraído da Imagem (OCR)]:\n${ocrExtractedText}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+
+      if (!fullTextToProcess.trim()) return;
+
+      // Verificar presença de palavras-chave no texto consolidado (legenda ou OCR)
+      const textLower = fullTextToProcess.toLowerCase();
+      const hasKeyword = KEYWORDS.some((kw) => textLower.includes(kw)) || Boolean(ocrExtractedText);
 
       if (!hasKeyword) return;
 
       console.log(`[WhatsApp] Nova mensagem de vaga identificada no grupo "${chat.name}" (${chat.id._serialized})`);
 
-      // 4. Extração de Links e Web Scraping Automático
+      // 5. Extração de Links e Web Scraping Automático
       const urlRegex = /(https?:\/\/[^\s]+)/g;
-      const extractedUrls = msg.body.match(urlRegex) || [];
-
-      let fullTextToProcess = msg.body;
+      const extractedUrls = fullTextToProcess.match(urlRegex) || [];
 
       if (extractedUrls.length > 0) {
         console.log(`[WhatsApp] ${extractedUrls.length} link(s) identificado(s) na mensagem. Iniciando scraping...`);
         for (const url of extractedUrls) {
           try {
             const rawHtml = await scrapeJobPage(url);
-            // Limpa o HTML extraindo apenas o texto relevante para não inflar a contagem de tokens
             const textOnly = rawHtml
               .replace(/<script\b[^<]*>[\s\S]*?<\/script>/gi, '')
               .replace(/<style\b[^<]*>[\s\S]*?<\/style>/gi, '')
@@ -95,10 +120,10 @@ export function initWhatsAppListener(): Client {
         }
       }
 
-      // 5. Processar texto consolidado com IA (Gemini / Fallback)
+      // 6. Processar texto consolidado com IA (Gemini / Fallback)
       const structuredData = await processTextToJSON(fullTextToProcess, 'job');
 
-      // 6. Calcular Score da vaga
+      // 7. Calcular Score da vaga
       const score = calculateJobScore({
         salaryMin: undefined,
         salaryMax: undefined,
@@ -106,7 +131,7 @@ export function initWhatsAppListener(): Client {
         requiredStack: structuredData.skills || [],
       });
 
-      // 7. Garantir empresa padrão no Supabase
+      // 8. Garantir empresa padrão no Supabase
       let companyId: string | null = null;
       const { data: defaultCompany } = await supabase
         .from('companies')
@@ -144,7 +169,7 @@ export function initWhatsAppListener(): Client {
         })),
       ];
 
-      // 8. Inserir vaga na tabela 'jobs' no Supabase
+      // 9. Inserir vaga na tabela 'jobs' no Supabase
       const { data: insertedJob, error: insertError } = await supabase
         .from('jobs')
         .insert({

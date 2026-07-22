@@ -9,6 +9,7 @@
     "worker": "ts-node worker/index.ts"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@radix-ui/react-slider": "^1.4.2",
     "@supabase/supabase-js": "^2.49.1",
     "@types/react": "^19.2.17",
