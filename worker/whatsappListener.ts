@@ -16,12 +16,10 @@ const supabase = createClient(supabaseUrl, supabaseKey);
  * CONFIGURAÇÃO DE GRUPOS DO WHATSAPP:
  * Insira abaixo os IDs dos grupos que você deseja monitorar especificamente.
  * Exemplo: ['1203630123456789@g.us', '554899999999-12345678@g.us']
- * Se a lista estiver vazia (TARGET_GROUP_IDS = []), o listener irá monitorar TODOS os grupos dos quais o bot faz parte.
+ * Se a lista estiver vazia, o listener monitora todos os grupos.
  */
-export const TARGET_GROUP_IDS: string[] = [
-  // 'ID_DO_GRUPO_1@g.us',
-  // 'ID_DO_GRUPO_2@g.us',
-];
+export const TARGET_GROUPS: string[] = [];
+export const TARGET_GROUP_IDS: string[] = TARGET_GROUPS;
 
 const KEYWORDS = ['vaga', 'oportunidade', 'estágio', 'estagio', 'freela', 'freelancer', 'contratando', 'hiring'];
 
@@ -48,16 +46,20 @@ export function initWhatsAppListener(): Client {
   });
 
   client.on('message', async (msg: Message) => {
+    // 1. Log da origem da mensagem para identificação visual de IDs de grupos
+    console.log(`[LOG] Mensagem de: ${msg.from}`);
+
+    // 2. Filtro por grupos alvo antes de executar chamadas assíncronas do Puppeteer
+    if (TARGET_GROUPS.length > 0 && !TARGET_GROUPS.includes(msg.from)) {
+      return;
+    }
+
+    // 3. Bloco try/catch isolado para blindar o worker contra falhas de avaliação de página no Puppeteer (ExecutionContext.#evaluate)
     try {
       const chat = await msg.getChat();
 
       // Verificar se a mensagem é proveniente de um grupo
       if (!chat.isGroup) return;
-
-      // Filtro por ID de Grupo (se TARGET_GROUP_IDS contiver IDs especificados)
-      if (TARGET_GROUP_IDS.length > 0 && !TARGET_GROUP_IDS.includes(chat.id._serialized)) {
-        return;
-      }
 
       const text = msg.body.toLowerCase();
       const hasKeyword = KEYWORDS.some((kw) => text.includes(kw));
@@ -66,10 +68,10 @@ export function initWhatsAppListener(): Client {
 
       console.log(`[WhatsApp] Nova mensagem de vaga identificada no grupo "${chat.name}" (${chat.id._serialized})`);
 
-      // 1. Processar texto com IA (Gemini / Fallback)
+      // Processar texto com IA (Gemini / Fallback)
       const structuredData = await processTextToJSON(msg.body, 'job');
 
-      // 2. Calcular Score da vaga
+      // Calcular Score da vaga
       const score = calculateJobScore({
         salaryMin: undefined,
         salaryMax: undefined,
@@ -77,7 +79,7 @@ export function initWhatsAppListener(): Client {
         requiredStack: structuredData.skills || [],
       });
 
-      // 3. Garantir ou buscar empresa padrão no Supabase
+      // Garantir empresa padrão no Supabase
       let companyId: string | null = null;
       const { data: defaultCompany } = await supabase
         .from('companies')
@@ -101,7 +103,7 @@ export function initWhatsAppListener(): Client {
         return;
       }
 
-      // 4. Inserir vaga na tabela 'jobs' no Supabase
+      // Inserir vaga na tabela 'jobs' no Supabase
       const { data: insertedJob, error: insertError } = await supabase
         .from('jobs')
         .insert({
@@ -132,7 +134,8 @@ export function initWhatsAppListener(): Client {
         console.log(`[WhatsApp] Vaga inserida com sucesso no Supabase! ID: ${insertedJob?.id}`);
       }
     } catch (err) {
-      console.error('[WhatsApp] Erro ao processar mensagem do grupo:', err);
+      // Captura falhas isoladas de avaliação do Puppeteer/getChat sem derrubar o processo principal
+      console.error('[WhatsApp] Erro capturado ao processar mensagem do grupo:', err);
     }
   });
 
