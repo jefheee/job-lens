@@ -21,7 +21,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 export const TARGET_GROUPS: string[] = [];
 export const TARGET_GROUP_IDS: string[] = TARGET_GROUPS;
 
-const KEYWORDS = ['vaga', 'oportunidade', 'estágio', 'estagio', 'freela', 'freelancer', 'contratando', 'hiring'];
+const KEYWORDS = ['vaga', 'oportunidade', 'estágio', 'estagio', 'freela', 'freelancer', 'contratando', 'hiring', 'trabalho', 'emprego', 'remoto', 'home-office', 'CLT', 'salário', 'vagas', 'oportunidades', 'contrata'];
 
 /**
  * Initializes WhatsApp Web client and starts listening for job messages in groups.
