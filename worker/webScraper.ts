@@ -2,114 +2,128 @@ import { chromium } from 'playwright-extra';
 import stealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { processTextToJSON } from '../utils/aiOrchestrator';
 
+// Injeção da extensão stealth no Playwright
 chromium.use(stealthPlugin());
 
-export const TARGET_URLS = [
-  'https://vagasfloripa.com.br',
-  'https://vagas.sc',
-  'https://www.linkedin.com/jobs',
-  'https://www.catho.com.br/vagas',
-  'https://floripamaisempregos.com.br',
-];
-
 /**
- * Executa a varredura direcionada nos portais alvo focados na região da Grande Florianópolis.
+ * Extrator dedicado para o portal VagasFloripa (vagasfloripa.com.br)
  */
-export async function runTargetedScraper(): Promise<void> {
-  console.log('[Targeted Scraper] Iniciando varredura nos portais alvo...');
-  const browser = await chromium.launch({ headless: true });
+export async function scrapeVagasFloripa(browser: any): Promise<void> {
+  console.log('[Scraper - VagasFloripa] Iniciando Fase 1: Descoberta de links recentes...');
+  const context = await browser.newContext({
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  });
+  const page = await context.newPage();
 
-  for (const targetUrl of TARGET_URLS) {
-    try {
-      console.log(`[Targeted Scraper] Navegando para o portal: ${targetUrl}`);
-      const context = await browser.newContext({
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      });
-      const page = await context.newPage();
+  try {
+    // Fase A: Navegar até a página principal
+    await page.goto('https://vagasfloripa.com.br', { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.waitForTimeout(2000);
 
-      // Delay evasivo para simular acesso humano
-      await page.waitForTimeout(Math.floor(Math.random() * 2000) + 1500);
+    // Fase B & C: Extrair links das 10 vagas mais recentes
+    const rawLinks = await page.$$eval('a[href*="/vaga/"], a[href*="/oportunidade/"]', (anchors: any[]) =>
+      anchors.map((a) => a.href)
+    );
 
-      const domain = new URL(targetUrl).hostname;
-      let jobUrls: string[] = [];
+    const jobLinks = Array.from(new Set(rawLinks)).slice(0, 10);
+    console.log(`[Scraper - VagasFloripa] ${jobLinks.length} vagas recentes identificadas.`);
 
+    // Fase D: Iteração e extração do conteúdo de cada vaga
+    for (const link of jobLinks) {
       try {
-        await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+        console.log(`[Scraper - VagasFloripa] Extraindo vaga: ${link}`);
+        await page.goto(link, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        
+        // Evasão de rate-limit
         await page.waitForTimeout(2000);
 
-        // Seletor modular dependendo do portal alvo
-        switch (true) {
-          case domain.includes('vagasfloripa'):
-            jobUrls = await page.$$eval('a[href*="/vaga/"], a[href*="/oportunidade/"]', (links) =>
-              links.map((a) => (a as HTMLAnchorElement).href)
-            );
-            break;
-
-          case domain.includes('vagas.sc'):
-            jobUrls = await page.$$eval('a[href*="/vaga/"], a[href*="/vagas/"]', (links) =>
-              links.map((a) => (a as HTMLAnchorElement).href)
-            );
-            break;
-
-          case domain.includes('linkedin'):
-            jobUrls = await page.$$eval('a.base-card__full-link, a[href*="/jobs/view/"]', (links) =>
-              links.map((a) => (a as HTMLAnchorElement).href)
-            );
-            break;
-
-          case domain.includes('catho'):
-            jobUrls = await page.$$eval('a[href*="/vaga/"]', (links) =>
-              links.map((a) => (a as HTMLAnchorElement).href)
-            );
-            break;
-
-          case domain.includes('floripamaisempregos'):
-            jobUrls = await page.$$eval('a[href*="/vaga/"], a[href*="/emprego/"]', (links) =>
-              links.map((a) => (a as HTMLAnchorElement).href)
-            );
-            break;
-
-          default:
-            jobUrls = await page.$$eval('a[href]', (links) =>
-              links.map((a) => (a as HTMLAnchorElement).href).filter((h) => h.includes('vaga') || h.includes('job'))
-            );
-            break;
+        const bodyText = await page.evaluate(() => document.body.innerText || '');
+        if (bodyText.length > 50) {
+          await processTextToJSON(bodyText.substring(0, 4000), 'job');
         }
-      } catch (portalErr) {
-        console.error(`[Targeted Scraper] Erro ao acessar a home do portal ${targetUrl}:`, portalErr);
+      } catch (linkErr) {
+        // Tratamento de erro isolado para não quebrar a execução das próximas vagas
+        console.error(`[Scraper - VagasFloripa] Falha ao extrair vaga (${link}):`, linkErr);
       }
-
-      // Filtrar URLs únicas
-      const uniqueUrls = Array.from(new Set(jobUrls)).slice(0, 10);
-      console.log(`[Targeted Scraper] ${uniqueUrls.length} vagas encontradas em ${domain}`);
-
-      for (const jobUrl of uniqueUrls) {
-        try {
-          await page.goto(jobUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-          await page.waitForTimeout(Math.floor(Math.random() * 1500) + 1000);
-
-          const bodyText = await page.evaluate(() => document.body.innerText || '');
-          if (bodyText.length > 50) {
-            console.log(`[Targeted Scraper] Processando vaga individual: ${jobUrl}`);
-            await processTextToJSON(bodyText.substring(0, 4000), 'job');
-          }
-        } catch (jobErr) {
-          console.error(`[Targeted Scraper] Erro ao extrair conteúdo da vaga ${jobUrl}:`, jobErr);
-        }
-      }
-
-      await context.close();
-    } catch (siteErr) {
-      console.error(`[Targeted Scraper] Erro ao processar o portal ${targetUrl}:`, siteErr);
     }
+  } catch (portalErr) {
+    console.error('[Scraper - VagasFloripa] Erro na Fase de Descoberta:', portalErr);
+  } finally {
+    await context.close();
   }
-
-  await browser.close();
-  console.log('[Targeted Scraper] Varredura nos portais alvo concluída.');
 }
 
 /**
- * Raspa o conteúdo HTML bruto de uma página específica.
+ * Extrator dedicado para o portal Vagas.SC (vagas.sc)
+ */
+export async function scrapeVagasSC(browser: any): Promise<void> {
+  console.log('[Scraper - Vagas.SC] Iniciando Fase 1: Descoberta de links recentes...');
+  const context = await browser.newContext({
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  });
+  const page = await context.newPage();
+
+  try {
+    // Fase A: Navegar até a página principal
+    await page.goto('https://vagas.sc', { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.waitForTimeout(2000);
+
+    // Fase B & C: Extrair links das 10 vagas mais recentes
+    const rawLinks = await page.$$eval('a[href*="/vaga/"], a[href*="/vagas/"]', (anchors: any[]) =>
+      anchors.map((a) => a.href)
+    );
+
+    const jobLinks = Array.from(new Set(rawLinks)).slice(0, 10);
+    console.log(`[Scraper - Vagas.SC] ${jobLinks.length} vagas recentes identificadas.`);
+
+    // Fase D: Iteração e extração do conteúdo de cada vaga
+    for (const link of jobLinks) {
+      try {
+        console.log(`[Scraper - Vagas.SC] Extraindo vaga: ${link}`);
+        await page.goto(link, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        
+        // Evasão de rate-limit
+        await page.waitForTimeout(2000);
+
+        const bodyText = await page.evaluate(() => document.body.innerText || '');
+        if (bodyText.length > 50) {
+          await processTextToJSON(bodyText.substring(0, 4000), 'job');
+        }
+      } catch (linkErr) {
+        // Tratamento de erro isolado para não quebrar a execução das próximas vagas
+        console.error(`[Scraper - Vagas.SC] Falha ao extrair vaga (${link}):`, linkErr);
+      }
+    }
+  } catch (portalErr) {
+    console.error('[Scraper - Vagas.SC] Erro na Fase de Descoberta:', portalErr);
+  } finally {
+    await context.close();
+  }
+}
+
+/**
+ * Função principal que instancia o browser uma única vez e orquestra os extratores dedicados.
+ */
+export async function runAllScrapers(): Promise<void> {
+  console.log('===================================================');
+  console.log('    INICIANDO CRAWLER DEDICADO (VagasFloripa & Vagas.SC)');
+  console.log('===================================================');
+
+  const browser = await chromium.launch({ headless: true });
+
+  try {
+    await scrapeVagasFloripa(browser);
+    await scrapeVagasSC(browser);
+  } catch (err) {
+    console.error('[Scraper Main] Erro durante a execução dos scrapers:', err);
+  } finally {
+    await browser.close();
+    console.log('[Scraper Main] Instância do browser fechada e varredura concluída.');
+  }
+}
+
+/**
+ * Função legado mantida para compatibilidade com raspagem direta de links.
  */
 export async function scrapeJobPage(targetUrl: string): Promise<string> {
   const browser = await chromium.launch({ headless: true });

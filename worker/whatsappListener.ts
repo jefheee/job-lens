@@ -50,21 +50,16 @@ export function initWhatsAppListener(): Client {
   });
 
   client.on('message', async (msg: Message) => {
-    // 1. Log da origem da mensagem para identificação visual de IDs de grupos
-    console.log(`[LOG] Mensagem de: ${msg.from}`);
+    // 1. Log inicial simplificado diretamente via msg.from sem chamar getChat()
+    console.log(`[LOG] Mensagem recebida do ID: ${msg.from}`);
 
-    // 2. Filtro por grupos alvo antes de executar chamadas assíncronas do Puppeteer
+    // 2. Filtro por grupos alvo diretamente pelo ID da mensagem (ex: @g.us)
     if (TARGET_GROUPS.length > 0 && !TARGET_GROUPS.includes(msg.from)) {
       return;
     }
 
-    // 3. Bloco try/catch isolado para blindar o worker contra falhas
+    // 3. Bloco try/catch isolado
     try {
-      const chat = await msg.getChat();
-
-      // Verificar se a mensagem é proveniente de um grupo
-      if (!chat.isGroup) return;
-
       // 4. Interceptação e Extração de Mídia (OCR em Imagens/Flyers)
       let ocrExtractedText = '';
       if (msg.hasMedia) {
@@ -89,13 +84,13 @@ export function initWhatsAppListener(): Client {
 
       if (!fullTextToProcess.trim()) return;
 
-      // Verificar presença de palavras-chave no texto consolidado (legenda ou OCR)
+      // Verificar presença de palavras-chave no texto consolidado
       const textLower = fullTextToProcess.toLowerCase();
       const hasKeyword = KEYWORDS.some((kw) => textLower.includes(kw)) || Boolean(ocrExtractedText);
 
       if (!hasKeyword) return;
 
-      console.log(`[WhatsApp] Nova mensagem de vaga identificada no grupo "${chat.name}" (${chat.id._serialized})`);
+      console.log(`[WhatsApp] Nova mensagem de vaga identificada no grupo ID: ${msg.from}`);
 
       // 5. Extração de Links e Web Scraping Automático
       const urlRegex = /(https?:\/\/[^\s]+)/g;
@@ -158,7 +153,7 @@ export function initWhatsAppListener(): Client {
       // Montar lista de fontes com URLs encontradas
       const sources = [
         {
-          name: `WhatsApp (${chat.name})`,
+          name: `WhatsApp (${msg.from})`,
           url: `https://web.whatsapp.com/`,
           discoveredAt: new Date().toISOString(),
         },
@@ -173,7 +168,7 @@ export function initWhatsAppListener(): Client {
       const { data: insertedJob, error: insertError } = await supabase
         .from('jobs')
         .insert({
-          title: structuredData.title || `Vaga de WhatsApp - ${chat.name}`,
+          title: structuredData.title || `Vaga de WhatsApp - ${msg.from}`,
           description: fullTextToProcess,
           company_id: companyId,
           contract_type: 'Freelancer',
@@ -194,7 +189,7 @@ export function initWhatsAppListener(): Client {
         console.log(`[WhatsApp] Vaga inserida com sucesso no Supabase! ID: ${insertedJob?.id}`);
       }
     } catch (err) {
-      console.error('[WhatsApp] Erro capturado ao processar mensagem do grupo:', err);
+      console.error('[WhatsApp] Erro capturado ao processar mensagem:', err);
     }
   });
 

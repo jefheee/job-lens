@@ -39,6 +39,7 @@ export interface Job {
   sources: JobSource[];
   score: number;
   matchScore?: number;
+  match_percentage?: number;
   status: JobStatus;
   requiredStack: string[];
   gigDate?: Date;

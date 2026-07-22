@@ -26,13 +26,19 @@ export default function DashboardPage() {
   const fetchJobs = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('jobs')
-        .select('*, company:companies(name, logo_url)')
-        .order('created_at', { ascending: false });
+      // 1. Tenta buscar vagas com porcentagem de match calculada via RPC no Supabase
+      const { data, error } = await supabase.rpc('get_jobs_with_match');
 
       if (error) {
-        console.error('[Dashboard] Erro ao buscar vagas do Supabase:', error);
+        console.warn('[Dashboard] RPC get_jobs_with_match indisponível, usando fallback nativo:', error.message);
+        // Fallback de segurança se a RPC ainda não tiver sido criada
+        const { data: fallbackData } = await supabase
+          .from('jobs')
+          .select('*, company:companies(name, logo_url)')
+          .order('created_at', { ascending: false });
+
+        setJobs(fallbackData || []);
+        setFilteredJobs(fallbackData || []);
       } else {
         setJobs(data || []);
         setFilteredJobs(data || []);
@@ -97,6 +103,13 @@ export default function DashboardPage() {
     if (score >= 8.0) return 'bg-emerald-500 text-white';
     if (score >= 5.0) return 'bg-blue-500 text-white';
     return 'bg-amber-500 text-white';
+  };
+
+  // Cores do Badge de Match por Porcentagem (Verde >= 75%, Amarelo >= 50%, Cinza < 50%)
+  const getMatchBadgeColor = (percentage: number) => {
+    if (percentage >= 75) return 'bg-emerald-600 text-white';
+    if (percentage >= 50) return 'bg-amber-500 text-white';
+    return 'bg-gray-500 text-white';
   };
 
   return (
@@ -220,15 +233,30 @@ export default function DashboardPage() {
                             {job.company?.name || 'Empresa Confidencial'} • {job.location || 'Brasil'}
                           </p>
                         </div>
-                        {/* Score Badge */}
-                        <div
-                          className={`px-2.5 py-1 rounded-lg text-xs font-black tracking-wide shadow-sm flex items-center gap-1 ${getScoreBadgeColor(
-                            job.score || 0
-                          )}`}
-                          title="Score do JobLens (0 a 10)"
-                        >
-                          <span>★</span>
-                          <span>{(job.score || 0).toFixed(1)}</span>
+                        
+                        {/* Area de Badges (Match % + Score) */}
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          {job.match_percentage != null && (
+                            <div
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold tracking-wide shadow-xs flex items-center gap-1 ${getMatchBadgeColor(
+                                job.match_percentage
+                              )}`}
+                              title="Porcentagem de similaridade semântica com seu CV"
+                            >
+                              <span>🎯</span>
+                              <span>{Math.round(job.match_percentage)}% Match</span>
+                            </div>
+                          )}
+
+                          <div
+                            className={`px-2.5 py-1 rounded-lg text-xs font-black tracking-wide shadow-xs flex items-center gap-1 ${getScoreBadgeColor(
+                              job.score || 0
+                            )}`}
+                            title="Score do JobLens (0 a 10)"
+                          >
+                            <span>★</span>
+                            <span>{(job.score || 0).toFixed(1)}</span>
+                          </div>
                         </div>
                       </div>
 

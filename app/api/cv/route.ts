@@ -119,12 +119,8 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (dbError) {
-      console.warn('[API CV] Aviso ao salvar perfil no Supabase (banco pode não ter a tabela ainda):', dbError.message);
-      return NextResponse.json({
-        success: true,
-        extractedInfo,
-        warning: 'Extração por IA concluída com sucesso. Nota: Perfil não salvo no Supabase (tabela user_profiles pendente).',
-      });
+      console.error('[API CV] Erro ao salvar perfil no Supabase:', dbError.message);
+      return NextResponse.json({ error: dbError.message }, { status: 500 });
     }
 
     return NextResponse.json({
