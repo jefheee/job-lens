@@ -1,14 +1,17 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { supabase } from '../utils/supabase';
 import { JobFilter, JobFilterParams } from '../components/JobFilter';
-import { Job } from '../types/job';
+import { CvUploader } from '../components/CvUploader';
 
 export default function DashboardPage() {
   const [jobs, setJobs] = useState<any[]>([]);
   const [filteredJobs, setFilteredJobs] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [showCvUploader, setShowCvUploader] = useState<boolean>(false);
+
   const [filters, setFilters] = useState<JobFilterParams>({
     contractTypes: [],
     modalities: [],
@@ -49,22 +52,18 @@ export default function DashboardPage() {
   const applyFilters = (allJobs: any[], f: JobFilterParams) => {
     let result = [...allJobs];
 
-    // Filtro de Salário Mínimo
     if (f.salaryMin && f.salaryMin > 0) {
       result = result.filter((j) => (j.salary_max || j.salary_min || 0) >= f.salaryMin!);
     }
 
-    // Filtro de Score Mínimo
     if (f.scoreMin && f.scoreMin > 0) {
       result = result.filter((j) => (j.score || 0) >= f.scoreMin!);
     }
 
-    // Filtro de Modalidade
     if (f.modalities && f.modalities.length > 0) {
       result = result.filter((j) => f.modalities.includes(j.modality));
     }
 
-    // Filtro de Tipo de Contrato
     if (f.contractTypes && f.contractTypes.length > 0) {
       result = result.filter((j) => f.contractTypes.includes(j.contract_type));
     }
@@ -102,24 +101,67 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100">
-      {/* Header */}
-      <header className="border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 sticky top-0 z-10 backdrop-blur-md bg-opacity-90">
+      {/* Header com Navegação e Botões de Acesso */}
+      <header className="border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 sticky top-0 z-20 backdrop-blur-md bg-opacity-90">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="h-9 w-9 rounded-xl bg-blue-600 flex items-center justify-center text-white font-bold text-lg shadow-md shadow-blue-500/20">
-              JL
-            </div>
-            <span className="text-xl font-bold tracking-tight bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-              JobLens
-            </span>
+          <div className="flex items-center space-x-6">
+            <Link href="/" className="flex items-center space-x-3">
+              <div className="h-9 w-9 rounded-xl bg-blue-600 flex items-center justify-center text-white font-bold text-lg shadow-md shadow-blue-500/20">
+                JL
+              </div>
+              <span className="text-xl font-bold tracking-tight bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                JobLens
+              </span>
+            </Link>
+
+            {/* Links de Navegação entre Páginas/Rotas */}
+            <nav className="hidden md:flex items-center space-x-2">
+              <Link
+                href="/"
+                className="px-3 py-2 text-xs font-semibold rounded-lg bg-gray-100 dark:bg-gray-800 text-blue-600 dark:text-blue-400"
+              >
+                Dashboard
+              </Link>
+              <Link
+                href="/vagas"
+                className="px-3 py-2 text-xs font-semibold rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                Feed Cru
+              </Link>
+              <Link
+                href="/freela"
+                className="px-3 py-2 text-xs font-semibold rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                Calendário Freela
+              </Link>
+            </nav>
           </div>
-          <div className="flex items-center space-x-4">
-            <span className="text-xs font-semibold px-3 py-1 bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 rounded-full border border-blue-100 dark:border-blue-900">
+
+          <div className="flex items-center space-x-3">
+            <span className="hidden sm:inline-block text-xs font-semibold px-3 py-1 bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 rounded-full border border-blue-100 dark:border-blue-900">
               {filteredJobs.length} {filteredJobs.length === 1 ? 'vaga encontrada' : 'vagas encontradas'}
             </span>
+
+            {/* Botão para Abrir Upload de CV / Matcher */}
+            <button
+              onClick={() => setShowCvUploader(!showCvUploader)}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm flex items-center gap-1.5"
+            >
+              <span>📄</span>
+              <span>{showCvUploader ? 'Fechar CV Matcher' : 'Upload CV / Matcher'}</span>
+            </button>
           </div>
         </div>
       </header>
+
+      {/* Seção Modal/Expansível de Upload de CV */}
+      {showCvUploader && (
+        <div className="bg-blue-50/50 dark:bg-blue-950/20 border-b border-blue-100 dark:border-blue-900/50 py-8 px-4">
+          <div className="max-w-4xl mx-auto">
+            <CvUploader />
+          </div>
+        </div>
+      )}
 
       {/* Main Content Layout */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
