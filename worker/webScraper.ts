@@ -16,8 +16,11 @@ export async function scrapeVagasFloripa(browser: any): Promise<void> {
   const page = await context.newPage();
 
   try {
-    // Fase A: Navegar até a página principal
-    await page.goto('https://vagasfloripa.com.br', { waitUntil: 'domcontentloaded', timeout: 45000 });
+    // Fase A: Navegar até a página principal com timeout curto e tolerância a redirecionamento
+    await page
+      .goto('https://vagasfloripa.com.br', { waitUntil: 'commit', timeout: 15000 })
+      .catch(() => console.log('[Scraper - VagasFloripa] Timeout ignorado na Home, tentando extração parcial...'));
+    
     await page.waitForTimeout(2000);
 
     // Fase B & C: Extrair links das 10 vagas mais recentes
@@ -32,7 +35,9 @@ export async function scrapeVagasFloripa(browser: any): Promise<void> {
     for (const link of jobLinks) {
       try {
         console.log(`[Scraper - VagasFloripa] Extraindo vaga: ${link}`);
-        await page.goto(link, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await page
+          .goto(link, { waitUntil: 'commit', timeout: 15000 })
+          .catch(() => console.log('[Scraper] Timeout ignorado, tentando extrair texto parcial...'));
         
         // Evasão de rate-limit
         await page.waitForTimeout(2000);
@@ -42,7 +47,6 @@ export async function scrapeVagasFloripa(browser: any): Promise<void> {
           await processTextToJSON(bodyText.substring(0, 4000), 'job');
         }
       } catch (linkErr) {
-        // Tratamento de erro isolado para não quebrar a execução das próximas vagas
         console.error(`[Scraper - VagasFloripa] Falha ao extrair vaga (${link}):`, linkErr);
       }
     }
@@ -65,7 +69,10 @@ export async function scrapeVagasSC(browser: any): Promise<void> {
 
   try {
     // Fase A: Navegar até a página principal
-    await page.goto('https://vagas.sc', { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page
+      .goto('https://vagas.sc', { waitUntil: 'commit', timeout: 15000 })
+      .catch(() => console.log('[Scraper - Vagas.SC] Timeout ignorado na Home, tentando extração parcial...'));
+    
     await page.waitForTimeout(2000);
 
     // Fase B & C: Extrair links das 10 vagas mais recentes
@@ -80,7 +87,9 @@ export async function scrapeVagasSC(browser: any): Promise<void> {
     for (const link of jobLinks) {
       try {
         console.log(`[Scraper - Vagas.SC] Extraindo vaga: ${link}`);
-        await page.goto(link, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await page
+          .goto(link, { waitUntil: 'commit', timeout: 15000 })
+          .catch(() => console.log('[Scraper] Timeout ignorado, tentando extrair texto parcial...'));
         
         // Evasão de rate-limit
         await page.waitForTimeout(2000);
@@ -90,7 +99,6 @@ export async function scrapeVagasSC(browser: any): Promise<void> {
           await processTextToJSON(bodyText.substring(0, 4000), 'job');
         }
       } catch (linkErr) {
-        // Tratamento de erro isolado para não quebrar a execução das próximas vagas
         console.error(`[Scraper - Vagas.SC] Falha ao extrair vaga (${link}):`, linkErr);
       }
     }
@@ -123,13 +131,15 @@ export async function runAllScrapers(): Promise<void> {
 }
 
 /**
- * Função legado mantida para compatibilidade com raspagem direta de links.
+ * Função legado mantida para compatibilidade com raspagem direta de links (com bypass de timeout/redirecionamento).
  */
 export async function scrapeJobPage(targetUrl: string): Promise<string> {
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage();
-    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page
+      .goto(targetUrl, { waitUntil: 'commit', timeout: 15000 })
+      .catch(() => console.log('[Scraper] Timeout ignorado, tentando extrair texto parcial...'));
     return await page.evaluate(() => document.body.innerHTML);
   } finally {
     await browser.close();

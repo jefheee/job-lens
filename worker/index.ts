@@ -1,10 +1,8 @@
+import 'dotenv/config';
 import cron from 'node-cron';
-import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import { initWhatsAppListener } from './whatsappListener';
 import { runAllScrapers } from './webScraper';
-
-dotenv.config();
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -58,6 +56,12 @@ async function startWorkerService() {
       console.error('[Worker Cron] Erro durante a execução do Crawler Dedicado agendado:', error);
     }
   });
+
+  // Startup Trigger: Disparo imediato da varredura na inicialização sem esperar a hora do cron
+  console.log('[Worker Startup] Disparando varredura inicial do Crawler Dedicado imediatamente...');
+  runAllScrapers().catch((err) =>
+    console.error('[Worker Startup Scrape] Erro na varredura inicial:', err)
+  );
 
   console.log('[Worker Index] Serviço JobLens Worker rodando com sucesso.');
 }

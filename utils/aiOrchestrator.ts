@@ -1,3 +1,4 @@
+import 'dotenv/config';
 /**
  * AI Orchestrator para processamento de textos não estruturados e visão computacional (OCR)
  * Suporta modelos Gemini (com fallback para gemini-2.5-flash e Groq) para extração multimodal e texto bruto.
