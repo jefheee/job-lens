@@ -71,7 +71,7 @@ export function initWhatsAppListener(): Client {
         try {
           const media = await msg.downloadMedia();
           if (media && media.mimetype && media.mimetype.startsWith('image/')) {
-            console.log(`[WhatsApp] Imagem identificada (${media.mimetype}). Acionando OCR Gemini 1.5 Flash...`);
+            console.log(`[WhatsApp] Imagem identificada (${media.mimetype}). Acionando OCR Gemini...`);
             ocrExtractedText = await extractTextFromImage(media.data, media.mimetype);
           }
         } catch (mediaErr) {

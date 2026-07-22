@@ -8,6 +8,27 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+const CANDIDATE_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+
+async function getGenerativeResult(genAI: GoogleGenerativeAI, contents: any) {
+  let lastError: any = null;
+  for (const modelName of CANDIDATE_MODELS) {
+    try {
+      const model = genAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent(contents);
+      return result;
+    } catch (err: any) {
+      lastError = err;
+      if (err?.status === 404 || err?.message?.includes('404') || err?.message?.includes('not found')) {
+        console.warn(`[API CV] Modelo '${modelName}' indisponível (404). Tentando próximo modelo...`);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError;
+}
+
 export async function POST(req: NextRequest) {
   try {
     let cvText = '';
@@ -50,7 +71,6 @@ export async function POST(req: NextRequest) {
     }
 
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
     let extractedInfo: { skills: string[]; experience: string; seniority: string } = {
       skills: [],
@@ -63,6 +83,7 @@ export async function POST(req: NextRequest) {
 "experience" (resumo da experiência profissional),
 "seniority" (string: 'Júnior', 'Pleno', 'Sênior', 'Especialista').`;
 
+    let result;
     if (pdfBase64) {
       const imagePart = {
         inlineData: {
@@ -70,16 +91,17 @@ export async function POST(req: NextRequest) {
           mimeType: 'application/pdf',
         },
       };
-      const result = await model.generateContent([prompt, imagePart]);
-      const resText = (await result.response).text();
-      const cleanJson = resText.replace(/```json|```/g, '').trim();
-      extractedInfo = JSON.parse(cleanJson);
-      cvText = `[Extraído de PDF]: ${extractedInfo.experience}`;
+      result = await getGenerativeResult(genAI, [prompt, imagePart]);
     } else {
-      const result = await model.generateContent([prompt, `Texto do Currículo:\n${cvText}`]);
-      const resText = (await result.response).text();
-      const cleanJson = resText.replace(/```json|```/g, '').trim();
-      extractedInfo = JSON.parse(cleanJson);
+      result = await getGenerativeResult(genAI, [prompt, `Texto do Currículo:\n${cvText}`]);
+    }
+
+    const resText = (await result.response).text();
+    const cleanJson = resText.replace(/```json|```/g, '').trim();
+    extractedInfo = JSON.parse(cleanJson);
+
+    if (pdfBase64) {
+      cvText = `[Extraído de PDF]: ${extractedInfo.experience || ''}`;
     }
 
     // Geração simulada de vetor de embedding de 1536 dimensões (ou zeros estruturados)
@@ -97,8 +119,12 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (dbError) {
-      console.error('[API CV] Erro ao salvar perfil no Supabase:', dbError);
-      return NextResponse.json({ error: 'Erro ao salvar no banco de dados', details: dbError }, { status: 500 });
+      console.warn('[API CV] Aviso ao salvar perfil no Supabase (banco pode não ter a tabela ainda):', dbError.message);
+      return NextResponse.json({
+        success: true,
+        extractedInfo,
+        warning: 'Extração por IA concluída com sucesso. Nota: Perfil não salvo no Supabase (tabela user_profiles pendente).',
+      });
     }
 
     return NextResponse.json({
