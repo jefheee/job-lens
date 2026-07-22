@@ -3,6 +3,7 @@ import qrcode from 'qrcode-terminal';
 import { createClient } from '@supabase/supabase-js';
 import { processTextToJSON } from '../utils/aiOrchestrator';
 import { calculateJobScore } from '../utils/scoreCalculator';
+import { scrapeJobPage } from './webScraper';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -21,7 +22,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 export const TARGET_GROUPS: string[] = [];
 export const TARGET_GROUP_IDS: string[] = TARGET_GROUPS;
 
-const KEYWORDS = ['vaga', 'oportunidade', 'estágio', 'estagio', 'freela', 'freelancer', 'contratando', 'hiring', 'trabalho', 'emprego', 'remoto', 'home-office', 'CLT', 'salário', 'vagas', 'oportunidades', 'contrata'];
+const KEYWORDS = ['vaga', 'oportunidade', 'estágio', 'estagio', 'freela', 'freelancer', 'contratando', 'hiring', 'trabalho', 'emprego', 'remoto', 'home-office', 'CLT', 'salário', 'vagas', 'oportunidades', 'contrata', 'http://', 'https://'];
 
 /**
  * Initializes WhatsApp Web client and starts listening for job messages in groups.
@@ -54,7 +55,7 @@ export function initWhatsAppListener(): Client {
       return;
     }
 
-    // 3. Bloco try/catch isolado para blindar o worker contra falhas de avaliação de página no Puppeteer (ExecutionContext.#evaluate)
+    // 3. Bloco try/catch isolado para blindar o worker contra falhas do Puppeteer
     try {
       const chat = await msg.getChat();
 
@@ -68,10 +69,36 @@ export function initWhatsAppListener(): Client {
 
       console.log(`[WhatsApp] Nova mensagem de vaga identificada no grupo "${chat.name}" (${chat.id._serialized})`);
 
-      // Processar texto com IA (Gemini / Fallback)
-      const structuredData = await processTextToJSON(msg.body, 'job');
+      // 4. Extração de Links e Web Scraping Automático
+      const urlRegex = /(https?:\/\/[^\s]+)/g;
+      const extractedUrls = msg.body.match(urlRegex) || [];
 
-      // Calcular Score da vaga
+      let fullTextToProcess = msg.body;
+
+      if (extractedUrls.length > 0) {
+        console.log(`[WhatsApp] ${extractedUrls.length} link(s) identificado(s) na mensagem. Iniciando scraping...`);
+        for (const url of extractedUrls) {
+          try {
+            const rawHtml = await scrapeJobPage(url);
+            // Limpa o HTML extraindo apenas o texto relevante para não inflar a contagem de tokens
+            const textOnly = rawHtml
+              .replace(/<script\b[^<]*>[\s\S]*?<\/script>/gi, '')
+              .replace(/<style\b[^<]*>[\s\S]*?<\/style>/gi, '')
+              .replace(/<[^>]+>/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim();
+
+            fullTextToProcess += `\n\n[Conteúdo Raspado da URL: ${url}]\n${textOnly.substring(0, 3000)}`;
+          } catch (scrapeErr) {
+            console.error(`[WhatsApp] Falha ao raspar a URL (${url}):`, scrapeErr);
+          }
+        }
+      }
+
+      // 5. Processar texto consolidado com IA (Gemini / Fallback)
+      const structuredData = await processTextToJSON(fullTextToProcess, 'job');
+
+      // 6. Calcular Score da vaga
       const score = calculateJobScore({
         salaryMin: undefined,
         salaryMax: undefined,
@@ -79,7 +106,7 @@ export function initWhatsAppListener(): Client {
         requiredStack: structuredData.skills || [],
       });
 
-      // Garantir empresa padrão no Supabase
+      // 7. Garantir empresa padrão no Supabase
       let companyId: string | null = null;
       const { data: defaultCompany } = await supabase
         .from('companies')
@@ -103,12 +130,26 @@ export function initWhatsAppListener(): Client {
         return;
       }
 
-      // Inserir vaga na tabela 'jobs' no Supabase
+      // Montar lista de fontes com URLs encontradas
+      const sources = [
+        {
+          name: `WhatsApp (${chat.name})`,
+          url: `https://web.whatsapp.com/`,
+          discoveredAt: new Date().toISOString(),
+        },
+        ...extractedUrls.map((url) => ({
+          name: 'Link de Vaga Extraído',
+          url,
+          discoveredAt: new Date().toISOString(),
+        })),
+      ];
+
+      // 8. Inserir vaga na tabela 'jobs' no Supabase
       const { data: insertedJob, error: insertError } = await supabase
         .from('jobs')
         .insert({
           title: structuredData.title || `Vaga de WhatsApp - ${chat.name}`,
-          description: msg.body,
+          description: fullTextToProcess,
           company_id: companyId,
           contract_type: 'Freelancer',
           modality: structuredData.suggestedModality || 'Remoto',
@@ -116,13 +157,7 @@ export function initWhatsAppListener(): Client {
           score: score,
           status: 'ATIVA',
           required_stack: structuredData.skills || [],
-          sources: [
-            {
-              name: `WhatsApp (${chat.name})`,
-              url: `https://web.whatsapp.com/`,
-              discoveredAt: new Date().toISOString(),
-            },
-          ],
+          sources: sources,
           gig_date: new Date().toISOString().split('T')[0],
         })
         .select()
@@ -134,7 +169,6 @@ export function initWhatsAppListener(): Client {
         console.log(`[WhatsApp] Vaga inserida com sucesso no Supabase! ID: ${insertedJob?.id}`);
       }
     } catch (err) {
-      // Captura falhas isoladas de avaliação do Puppeteer/getChat sem derrubar o processo principal
       console.error('[WhatsApp] Erro capturado ao processar mensagem do grupo:', err);
     }
   });
